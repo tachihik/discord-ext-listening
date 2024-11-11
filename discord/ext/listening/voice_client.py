@@ -70,12 +70,11 @@ class AudioReceiver(threading.Thread):
         self._resumed: AsyncEventWrapper = AsyncEventWrapper()
         self._clean: AsyncEventWrapper = AsyncEventWrapper()
         self._clean.set()
-        self._connected: threading.Event = client._connected
 
     def _do_run(self) -> None:
         while not self._end.is_set():
-            if not self._connected.is_set():
-                self._connected.wait()
+            if not self.client.is_connected():
+                return
 
             data = self.client.recv_audio(dump=not self._resumed.is_set())
             if data is None:
@@ -193,6 +192,11 @@ class VoiceClient(BaseVoiceClient):
 
         self._receiver: Optional[AudioReceiver] = None
         self._ssrc_map: Dict[int, Dict[str, Union[Member, Object]]] = {}
+        self._connected: bool = False
+
+    def is_connected(self) -> bool:
+        """Indicates if the voice client is connected to voice."""
+        return self._connected
 
     async def on_voice_server_update(self, data) -> None:
         await super().on_voice_server_update(data)
@@ -206,16 +210,17 @@ class VoiceClient(BaseVoiceClient):
 
         if self._receiver is not None:
             self._receiver.stop()
+        self._connected = False
         await super().disconnect(force=force)
 
     async def connect_websocket(self) -> DiscordVoiceWebSocket:
         from .gateway import hook
 
         ws = await DiscordVoiceWebSocket.from_client(self, hook=hook)
-        self._connected.clear()
+        self._connected = False
         while ws.secret_key is None:
             await ws.poll_event()
-        self._connected.set()
+        self._connected = True
         return ws
 
     def update_ssrc(self, data):
