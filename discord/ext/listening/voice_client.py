@@ -24,9 +24,11 @@ _log = logging.getLogger(__name__)
 
 
 class AsyncEventWrapper:
+    """Wrapper for threading.Event that provides async functionality."""
+    
     def __init__(self, event: Optional[threading.Event] = None):
         self.event: threading.Event = event or threading.Event()
-        self._waiters: queue.Queue = queue.Queue()
+        self._waiters: queue.Queue[Future] = queue.Queue()
 
     def __getattr__(self, item):
         return getattr(self.event, item)
@@ -50,11 +52,10 @@ class AsyncEventWrapper:
 
 
 class AudioReceiver(threading.Thread):
-    def __init__(
-        self,
-        client: 'VoiceClient',
-    ) -> None:
-        super().__init__()
+    """Handles receiving and processing audio data from Discord voice connections."""
+
+    def __init__(self, client: 'VoiceClient') -> None:
+        super().__init__(name="AudioReceiver")
         self.sink: Optional[AudioSink] = None
         self.process_pool: Optional[AudioProcessPool] = None
         self.client: VoiceClient = client
@@ -92,18 +93,24 @@ class AudioReceiver(threading.Thread):
     def _audio_processing_callback(self, future: Future) -> None:
         try:
             packet = future.result()
-        except BaseException as exc:
+        except Exception as exc:
             _log.exception("Exception occurred in audio process", exc_info=exc)
+            self.stop()
             return
+
         if self.sink is None:
             return
-        if isinstance(packet, AudioFrame):
-            sink_callback = self.sink.on_audio
-            packet.user = self.client.get_member_from_ssrc(packet.ssrc)
-        else:
-            sink_callback = self.sink.on_rtcp
-            packet.pt = RTCPMessageType(packet.pt)
-        sink_callback(packet)  # type: ignore
+
+        try:
+            if isinstance(packet, AudioFrame):
+                sink_callback = self.sink.on_audio
+                packet.user = self.client.get_member_from_ssrc(packet.ssrc)
+            else:
+                sink_callback = self.sink.on_rtcp
+                packet.pt = RTCPMessageType(packet.pt)
+            sink_callback(packet)  # type: ignore
+        except Exception as exc:
+            _log.exception("Error in sink callback", exc_info=exc)
 
     def run(self) -> None:
         try:
@@ -187,12 +194,14 @@ class AudioReceiver(threading.Thread):
 
 
 class VoiceClient(BaseVoiceClient):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    """Enhanced voice client with audio receiving capabilities."""
 
+    def __init__(self, *args: Any, **kwargs: Any):
+        super().__init__(*args, **kwargs)
         self._receiver: Optional[AudioReceiver] = None
         self._ssrc_map: Dict[int, Dict[str, Union[Member, Object]]] = {}
         self._connected: bool = False
+        self._socket_lock: threading.Lock = threading.Lock()
 
     def is_connected(self) -> bool:
         """Indicates if the voice client is connected to voice."""
@@ -363,30 +372,17 @@ class VoiceClient(BaseVoiceClient):
         await self._receiver.wait_for_clean()
 
     def recv_audio(self, *, dump: bool = False) -> Optional[bytes]:
-        """Attempts to receive raw audio and returns it, otherwise nothing.
+        with self._socket_lock:
+            try:
+                ready, _, err = select.select([self.socket], [], [self.socket], 0.01)
+                if err:
+                    _log.error(f"Socket error: {err[0]}")
+                    return None
+                if not ready or not self.is_connected():
+                    return None
 
-        You must be connected to receive audio.
-
-        Logs any error thrown by the connection socket.
-
-        Parameters
-        ----------
-        dump: :class:`bool`
-            Will not return data if true
-
-        Returns
-        -------
-        Optional[bytes]
-            If audio was received then it's returned.
-        """
-        ready, _, err = select.select([self.socket], [], [self.socket], 0.01)
-        if err:
-            _log.error(f"Socket error: {err[0]}")
-            return
-        if not ready or not self.is_connected():
-            return
-
-        data = self.socket.recv(4096)
-        if dump:
-            return
-        return data
+                data = self.socket.recv(4096)
+                return None if dump else data
+            except Exception as exc:
+                _log.error(f"Error receiving audio: {exc}")
+                return None

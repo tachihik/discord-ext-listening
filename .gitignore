@@ -8,3 +8,16 @@ discord/*
 !discord/ext/
 discord/ext/*
 !discord/ext/listening
+/.vs/discord-ext-listening/FileContentIndex/49af792f-0dae-4702-bfb2-6cd764845278.vsidx
+/.vs/discord-ext-listening/v17/.wsuo
+/.vs/ProjectSettings.json
+/.vs/slnx.sqlite
+/.vs/VSWorkspaceState.json
+/.vs/discord-ext-listening/FileContentIndex/006f7bf1-dba7-4afa-92d6-e9d468bf24f4.vsidx
+/.vs/discord-ext-listening/FileContentIndex/5b8ac887-5f54-4654-9451-adb5ba86d677.vsidx
+/.vs/discord-ext-listening/FileContentIndex/7d5b60b5-71eb-4b05-bce2-963af718f3d0.vsidx
+*.vsidx
+/.gitignore
+/.gitignore
+/.gitignore
+/.gitignore
